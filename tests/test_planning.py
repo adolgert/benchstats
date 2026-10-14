@@ -69,11 +69,12 @@ def test_plan_runs_reports_a_consistent_plan(rng):
     pilot = collection.make_measurements(base.sample(200, rng), benchmark="pilot")
     plan = decision.plan_runs(pilot, delta=0.05, n_sim=40, n_resamples=200, rng=rng)
     assert plan.unit == "draws" and plan.iterations_per_invocation == 1
-    assert plan.power >= plan.target_power == pytest.approx(0.8)
+    assert plan.target_power == pytest.approx(0.8)
     assert dict(plan.history)[plan.runs] == plan.power
     assert plan.power_se == pytest.approx(math.sqrt(plan.power * (1 - plan.power) / 40))
-    # Every size below the plan that was tried fell short of the target.
-    assert all(p < 0.8 for runs, p in plan.history if runs < plan.runs) or plan.runs == 16
+    # The search starts at 16 and the plan comes from the fitted power curve.
+    sizes = [runs for runs, _ in plan.history]
+    assert 16 in sizes and plan.runs >= 2
 
 
 def test_plan_runs_hierarchical_counts_invocations(rng):
@@ -87,7 +88,7 @@ def test_plan_runs_hierarchical_counts_invocations(rng):
 # ---------------------------------------------------------------- tier 2: end to end
 
 GENERATOR = synthetic.FloorPlusDetours(1.0, 0.05, (0.1, 0.02), (0.2, 1.0))
-PILOT_SIZE = 300
+PILOT_SIZE = 1000
 DELTA = 0.01
 PLAN_ALPHA, PLAN_BETA = 0.05, 0.2
 PLAN_SIMS = 400

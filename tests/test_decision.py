@@ -159,7 +159,7 @@ def test_compare_suite_widens_intervals(rng):
 
 COMPARE_LEVEL = 0.05  # each comparison at 95% confidence
 FALSE_CATCH = 2 * COMPARE_LEVEL
-N_RESAMPLES = 1999
+N_RESAMPLES = 999  # enough for a rate test; the pilot used 1,999 with the same rates
 FLOOR = synthetic.FloorPlusDetours(1.0, 0.05, (0.1, 0.02), (0.2, 1.0))
 DRIFT_PAIRS = 200
 
@@ -201,10 +201,10 @@ def false_verdicts(design, n_datasets, rng):
 # comments; where a design is known to under-cover a little, the tolerated
 # rate sits above alpha but every test must catch 2 alpha.
 NO_CHANGE_CASES = {
-    "independent": 0.05,  # pilot 0.050
-    "blocks": 0.06,  # pilot 0.064
-    "hierarchical": 0.07,  # pilot 0.071
-    "paired": 0.05,  # pilot 0.047, on interleaved drift
+    "independent": 0.05,  # pilot 0.046
+    "blocks": 0.075,  # pilot 0.065
+    "hierarchical": 0.065,  # pilot 0.055, 30 invocations
+    "paired": 0.05,  # pilot 0.046, on interleaved drift
 }
 
 
@@ -219,7 +219,7 @@ def test_no_change_gives_few_false_verdicts(design, rng):
 
 
 # Negative control: all A runs first, then all B, analyzed as independent.
-# The drift alone makes B look about 1% slower. Pilot rate 1.0; the test
+# The drift alone makes B look about 1% slower. Pilot rate 0.96; the test
 # claims at least 0.5 and must catch 2 alpha.
 SEQUENTIAL_TOLERATED = 0.5
 

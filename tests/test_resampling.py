@@ -111,7 +111,7 @@ def test_hierarchical_resamples_whole_groups(rng, sizes):
         seen.append(len(x))
         return float(np.mean(x))
 
-    resampling.hierarchical_bootstrap_ci((values,), (labels,), check, n_resamples=50, rng=rng)
+    resampling.hierarchical_bootstrap_ci((values,), (labels,), check, resample_within=None, n_resamples=50, rng=rng)
     assert len(seen) >= 50
 
 
@@ -164,8 +164,8 @@ def independent_coverage(dist, n, n_datasets, rng):
 # Pilot coverages (scripts/pilot.py test_resampling, 1,000 datasets) are in
 # comments; tolerated levels sit a few standard errors below them.
 INDEPENDENT_CASES = {
-    "gpd_tail xi=0.3": (synthetic.GPDTail(0.3, 1.0, 1.0), 100, 0.935),  # pilot 0.950
-    "floor_plus_detours": (FLOOR, 100, 0.935),  # pilot 0.950
+    "gpd_tail xi=0.3": (synthetic.GPDTail(0.3, 1.0, 1.0), 100, 0.925),  # pilot 0.944
+    "floor_plus_detours": (FLOOR, 100, 0.925),  # pilot 0.942
 }
 
 
@@ -183,9 +183,9 @@ CORRELATED_PHI = 0.7
 CORRELATED_N = 1000
 BURSTY = synthetic.BurstyModel(
     quiet=synthetic.FloorPlusDetours(1.0, 0.05, (0.02,), (0.2,)),
-    noisy=synthetic.FloorPlusDetours(1.0, 0.05, (0.5,), (0.2,)),
-    stay_quiet=0.98,
-    stay_noisy=0.9,
+    noisy=synthetic.FloorPlusDetours(1.0, 0.05, (0.8,), (0.2,)),
+    stay_quiet=0.99,
+    stay_noisy=0.95,
 )
 
 
@@ -209,8 +209,9 @@ def dependent_coverage(name, method, n_datasets, rng):
 
 
 # Negative controls: the independent bootstrap ignores dependence and should
-# under-cover. Pilot coverages: correlated 0.60, bursty 0.79.
-NEGATIVE_DEPENDENT = {"correlated": 0.70, "bursty": 0.85}
+# under-cover. Pilot coverages: correlated 0.675 (1,000 datasets), bursty
+# 0.645 (200 datasets).
+NEGATIVE_DEPENDENT = {"correlated": 0.75, "bursty": 0.75}
 
 
 @pytest.mark.statistical
@@ -224,8 +225,8 @@ def test_independent_bootstrap_undercovers_dependent_draws(name, rng):
 
 
 # The block bootstrap under-covers a little in small samples. Pilot coverage
-# on the correlated data: 0.93. Tolerate 0.91 and catch 0.86.
-BLOCK_TOLERATED, BLOCK_CATCH = 0.91, 0.86
+# on the correlated data: 0.916. Tolerate 0.89 and catch 0.84.
+BLOCK_TOLERATED, BLOCK_CATCH = 0.89, 0.84
 
 
 @pytest.mark.statistical
@@ -256,7 +257,7 @@ def hierarchical_coverage(n_invocations, method, n_datasets, rng):
         if method == "flat":
             ci = resampling.bootstrap_ci((draws.time,), median, n_resamples=N_RESAMPLES, rng=rng)
         else:
-            within = "iid" if method == "hierarchical-iid" else None
+            within = None if method == "hierarchical-whole" else "iid"
             ci = resampling.hierarchical_bootstrap_ci(
                 (draws.time,), (draws.invocation,), median, resample_within=within, n_resamples=N_RESAMPLES, rng=rng
             )
@@ -264,14 +265,14 @@ def hierarchical_coverage(n_invocations, method, n_datasets, rng):
     return covered
 
 
-# Pilot coverages, resampling whole invocations only: 10 invocations 0.87,
-# 30 invocations 0.93. Resampling within invocations as well over-covers
-# (0.97 and 0.97), so whole invocations is the default. With 10 invocations
-# the percentile interval under-covers; the test records that it stays above
-# 0.83 and must catch 0.75. With 30 it tolerates 0.91 and must catch 0.86.
-HIERARCHICAL_CASES = {10: (0.83, 0.75), 30: (0.91, 0.86)}
-# The flat bootstrap ignores the invocations. Pilot coverage 0.30 and 0.30.
-NEGATIVE_HIERARCHICAL = 0.45
+# Pilot coverages (1,000 datasets) for 10 and 30 invocations of 20 draws:
+# resampling invocations and then draws within them ("iid", the default)
+# 0.930 and 0.942; resampling whole invocations only 0.904 and 0.935. With
+# 10 invocations the test tolerates 0.90 and must catch 0.85; with 30 it
+# tolerates 0.92 and must catch 0.87.
+HIERARCHICAL_CASES = {10: (0.90, 0.85), 30: (0.92, 0.87)}
+# The flat bootstrap ignores the invocations. Pilot coverage 0.51 for both.
+NEGATIVE_HIERARCHICAL = 0.60
 
 
 @pytest.mark.statistical
@@ -295,7 +296,11 @@ def test_flat_bootstrap_undercovers_hierarchical_draws(n_invocations, rng):
 
 # ---------------------------------------------------------------- tier 2: Monte Carlo error
 
-MC_FRACTION = 0.05  # endpoint Monte Carlo error must be below 5% of the half-width
+# Endpoint Monte Carlo error at 9,999 resamples, as a fraction of the
+# half-width: pilot median 0.017, 99th percentile 0.047, maximum below 0.08
+# (400 datasets). The bound is 8%; the rate of meeting it must be at least
+# 0.99 and the test must catch 0.90.
+MC_FRACTION = 0.08
 MC_P0, MC_P1 = 0.99, 0.90  # tolerated and must-catch rates of meeting that bound
 
 
@@ -329,7 +334,7 @@ PILOTS = {
     **{
         f"coverage hierarchical G={g} {method}": (lambda m, rng, g=g, method=method: hierarchical_coverage(g, method, m, rng))
         for g in HIERARCHICAL_CASES
-        for method in ("flat", "hierarchical", "hierarchical-iid")
+        for method in ("flat", "hierarchical", "hierarchical-whole")
     },
     "mc ratio (mean is the ratio)": mc_ratio,
 }

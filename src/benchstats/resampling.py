@@ -317,7 +317,7 @@ def hierarchical_bootstrap_ci(
     groups,
     statistic,
     *,
-    resample_within=None,
+    resample_within="iid",
     within_block_length=None,
     confidence=0.95,
     n_resamples=9999,
@@ -327,10 +327,14 @@ def hierarchical_bootstrap_ci(
 
     ``groups`` holds one integer label array per sample, aligned with it,
     such as ``group_labels(m, "invocation")``. Groups are resampled with
-    replacement. ``resample_within`` is None (keep each chosen group whole),
-    "iid" (resample draws within each group) or "blocks" (stationary
-    bootstrap within each group, mean block length ``within_block_length``).
+    replacement. ``resample_within`` is "iid" (resample draws within each
+    chosen group), "blocks" (stationary bootstrap within each group, mean
+    block length ``within_block_length``) or None (keep each group whole).
     Each sample's groups are resampled independently.
+
+    The default comes from the coverage tests: for the median with 10 and
+    30 invocations of 20 draws, "iid" covered 93% and 94% at 95% nominal,
+    and None covered 90% and 93%.
     """
     data = _as_samples(data)
     _check_common(confidence, n_resamples, rng)

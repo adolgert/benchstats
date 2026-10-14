@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 import numpy as np
-from scipy import stats
+from scipy import optimize, stats
 
 from benchstats import characterization, collection, resampling
 
@@ -268,7 +268,7 @@ def compare(
     confidence=0.95,
     design="independent",
     level="invocation",
-    resample_within=None,
+    resample_within="iid",
     block_length=None,
     n_resamples=9999,
     include_warmup=False,
@@ -290,7 +290,8 @@ def compare(
       ``block_length`` defaults to the larger Politis-White choice of the
       two variants' log times.
     - "hierarchical": resamples whole groups (``level`` "invocation" or
-      "build"), optionally ``resample_within`` them ("iid" or "blocks").
+      "build") and then draws within them (``resample_within``: "iid",
+      "blocks" or None).
     - "paired": for interleaved runs; each baseline draw is matched with the
       adjacent candidate draw in run order and pairs are resampled together.
 
@@ -527,6 +528,26 @@ def _simulate(pilot_series, groups, design, runs, iterations, block, effect_mode
     return _simulated_record(a, b, interleave=design == "paired")
 
 
+def _size_from_power_curve(history, n_sim, target, *, fallback):
+    """Smallest size where the fitted curve Phi(a + b sqrt(size)) reaches target.
+
+    For a test statistic that is roughly normal, power is
+    Phi(delta sqrt(n) / sigma - z), so this curve has the right shape.
+    """
+    sizes = np.array(sorted(history), dtype=float)
+    hits = np.array([history[int(k)] for k in sizes]) * n_sim
+
+    def negative_log_likelihood(params):
+        p = np.clip(stats.norm.cdf(params[0] + params[1] * np.sqrt(sizes)), 1e-12, 1 - 1e-12)
+        return -np.sum(hits * np.log(p) + (n_sim - hits) * np.log1p(-p))
+
+    fit = optimize.minimize(negative_log_likelihood, x0=[-2.0, 0.2], method="Nelder-Mead")
+    a, b = fit.x
+    if not fit.success or b <= 0:
+        return int(fallback)
+    return max(2, math.ceil(((stats.norm.ppf(target) - a) / b) ** 2))
+
+
 def plan_runs(
     pilot,
     *,
@@ -552,7 +573,12 @@ def plan_runs(
     ``effect_model`` (default: multiply times by 1 + delta) to make a
     candidate, runs ``compare`` at confidence 1 - alpha, and records whether
     the verdict is "slower". The search doubles the number of runs from
-    ``start`` until the power reaches 1 - beta, then bisects.
+    ``start`` until the power reaches 1 - beta, adds two sizes inside the
+    last doubling, and fits the power curve Phi(a + b sqrt(runs)) to every
+    size tried by maximum likelihood. The plan is the smallest size the
+    curve puts at 1 - beta, and its reported power is a fresh estimate at
+    that size. Fitting all sizes avoids the optimism of stopping at the first
+    size whose noisy estimate reaches the target.
 
     For "hierarchical", runs are invocations per variant, each with
     ``iterations_per_invocation`` draws (default: the pilot's median); the
@@ -611,17 +637,15 @@ def plan_runs(
         if high > max_runs:
             raise ValueError(f"power stays below {target:g} up to {max_runs} runs")
     low = low or 1
-    while high - low > max(1, high // 20):
-        middle = (low + high) // 2
-        if middle < 2:
-            break
-        if power(middle) >= target:
-            high = middle
-        else:
-            low = middle
-    p = history[high]
+    for fraction in (1 / 3, 2 / 3):
+        size = int(round(low + fraction * (high - low)))
+        if 2 <= size not in history:
+            power(size)
+    runs = _size_from_power_curve(history, n_sim, target, fallback=high)
+    history.pop(runs, None)  # estimate the power at the chosen size afresh
+    p = power(runs)
     return RunPlan(
-        runs=high,
+        runs=runs,
         unit="invocations" if design == "hierarchical" else "draws",
         iterations_per_invocation=iterations,
         power=p,

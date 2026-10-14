@@ -25,7 +25,7 @@ import numpy as np
 from scipy import stats
 
 FAMILY_ALPHA = 0.05
-N_STATISTICAL_TESTS = 63
+N_STATISTICAL_TESTS = 61
 ALPHA = FAMILY_ALPHA / N_STATISTICAL_TESTS
 BETA = 0.05
 
