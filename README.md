@@ -59,7 +59,7 @@ print(result.statement)
 
 ```sh
 pytest                     # tier 1: exact tests, seconds
-pytest -m statistical      # tier 2: simulation-based tests, minutes
+pytest -m statistical      # tier 2: simulation-based tests, about 26 minutes
 ```
 
 Every tier-2 test states the quantity it checks, the level it tolerates, the
