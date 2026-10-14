@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "benchstats"
+version = "0.1.0"
+description = "Statistics for benchmark timings: describe the distribution and compare versions with error rates fixed in advance."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.15",  # scipy.stats.lmoment and the rng argument of bootstrap
+]
+
+[project.optional-dependencies]
+kde = ["KDEpy>=1.1.12"]
+diptest = ["diptest>=0.10"]  # GPL; optional while the license (D10) is open
+hdf5 = ["pandas>=2.2", "tables>=3.9"]
+plots = ["matplotlib>=3.8"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "h5py>=3.10",  # checks that HDF5 files open without pandas
+    "arch>=7",     # reference implementation of the block-length rule
+    "KDEpy>=1.1.12",
+    "diptest>=0.10",
+    "pandas>=2.2",
+    "tables>=3.9",
+    "matplotlib>=3.8",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/benchstats"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not statistical' -ra"
+markers = [
+    "statistical: simulation-based test (tier 2); run with pytest -m statistical",
+]
+
+[tool.ruff]
+line-length = 140
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B905"]  # zip without strict=
+
+[tool.ruff.lint.isort]
+known-first-party = ["benchstats", "support"]
