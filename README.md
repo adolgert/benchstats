@@ -20,6 +20,13 @@ pip install -e '.[diptest]'            # Hartigan's dip test (GPL; optional)
 
 For development, `uv sync --group dev` installs everything the tests use.
 
+## Documentation
+
+- [`docs/guide.md`](docs/guide.md) explains the library in plain language. It
+  follows the order of the work: decide, plan, run, store, describe, compare.
+- [`ai.md`](ai.md) is a compact reference with the same structure. It lists
+  every function, its defaults, and the measured behavior of each method.
+
 ## Modules
 
 | Module | What it does |
