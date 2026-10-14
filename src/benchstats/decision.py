@@ -528,11 +528,37 @@ def _simulate(pilot_series, groups, design, runs, iterations, block, effect_mode
     return _simulated_record(a, b, interleave=design == "paired")
 
 
-def _size_from_power_curve(history, n_sim, target, *, fallback):
+def _bracket(power, target, start, max_runs):
+    """Sizes (low, high) with estimated power below target at low and at or above it at high.
+
+    Doubles up from ``start`` while the power is too low, or halves down
+    while it is already high enough. low is 1 when even 2 runs reach the
+    target.
+    """
+    if power(start) >= target:
+        high = start
+        while high > 2:
+            smaller = max(2, high // 2)
+            if power(smaller) < target:
+                return smaller, high
+            high = smaller
+        return 1, high
+    low, high = start, 2 * start
+    while power(high) < target:
+        low, high = high, 2 * high
+        if high > max_runs:
+            raise ValueError(f"power stays below {target:g} up to {max_runs} runs")
+    return low, high
+
+
+def _size_from_power_curve(history, n_sim, target, *, low, high):
     """Smallest size where the fitted curve Phi(a + b sqrt(size)) reaches target.
 
     For a test statistic that is roughly normal, power is
-    Phi(delta sqrt(n) / sigma - z), so this curve has the right shape.
+    Phi(delta sqrt(n) / sigma - z), so this curve has the right shape. The
+    answer is kept inside the bracket (low, high] where the estimated power
+    crosses the target, which also guards against a degenerate fit when every
+    estimate is 0 or 1.
     """
     sizes = np.array(sorted(history), dtype=float)
     hits = np.array([history[int(k)] for k in sizes]) * n_sim
@@ -544,8 +570,9 @@ def _size_from_power_curve(history, n_sim, target, *, fallback):
     fit = optimize.minimize(negative_log_likelihood, x0=[-2.0, 0.2], method="Nelder-Mead")
     a, b = fit.x
     if not fit.success or b <= 0:
-        return int(fallback)
-    return max(2, math.ceil(((stats.norm.ppf(target) - a) / b) ** 2))
+        return int(high)
+    size = math.ceil(((stats.norm.ppf(target) - a) / b) ** 2)
+    return int(min(high, max(low + 1, 2, size)))
 
 
 def plan_runs(
@@ -573,8 +600,8 @@ def plan_runs(
     ``effect_model`` (default: multiply times by 1 + delta) to make a
     candidate, runs ``compare`` at confidence 1 - alpha, and records whether
     the verdict is "slower". The search doubles the number of runs from
-    ``start`` until the power reaches 1 - beta, adds two sizes inside the
-    last doubling, and fits the power curve Phi(a + b sqrt(runs)) to every
+    ``start`` until the power reaches 1 - beta (or halves it while the power
+    is already high enough), adds two sizes inside the final bracket, and fits the power curve Phi(a + b sqrt(runs)) to every
     size tried by maximum likelihood. The plan is the smallest size the
     curve puts at 1 - beta, and its reported power is a fresh estimate at
     that size. Fitting all sizes avoids the optimism of stopping at the first
@@ -631,17 +658,12 @@ def plan_runs(
         history[runs] = hits / n_sim
         return history[runs]
 
-    low, high = None, max(2, int(start))
-    while power(high) < target:
-        low, high = high, 2 * high
-        if high > max_runs:
-            raise ValueError(f"power stays below {target:g} up to {max_runs} runs")
-    low = low or 1
+    low, high = _bracket(power, target, max(2, int(start)), max_runs)
     for fraction in (1 / 3, 2 / 3):
         size = int(round(low + fraction * (high - low)))
         if 2 <= size not in history:
             power(size)
-    runs = _size_from_power_curve(history, n_sim, target, fallback=high)
+    runs = _size_from_power_curve(history, n_sim, target, low=low, high=high)
     history.pop(runs, None)  # estimate the power at the chosen size afresh
     p = power(runs)
     return RunPlan(

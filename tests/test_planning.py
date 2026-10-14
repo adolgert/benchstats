@@ -77,6 +77,15 @@ def test_plan_runs_reports_a_consistent_plan(rng):
     assert 16 in sizes and plan.runs >= 2
 
 
+def test_plan_runs_searches_down_when_the_start_is_already_enough(rng):
+    base = synthetic.FloorPlusDetours(1.0, 0.05)
+    pilot = collection.make_measurements(base.sample(200, rng), benchmark="pilot")
+    # A 20% slowdown against 5% jitter is found with a handful of draws.
+    plan = decision.plan_runs(pilot, delta=0.2, n_sim=40, n_resamples=200, rng=rng)
+    assert plan.runs < 16
+    assert any(runs < 16 for runs, _ in plan.history)
+
+
 def test_plan_runs_hierarchical_counts_invocations(rng):
     base = synthetic.FloorPlusDetours(1.0, 0.05)
     draws = synthetic.hierarchical(base, n_builds=1, n_invocations=8, n_iterations=10, build_sd=0, invocation_sd=0.01, rng=rng)
