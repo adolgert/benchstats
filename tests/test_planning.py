@@ -9,7 +9,7 @@ import pytest
 from benchstats import collection, decision
 from benchstats.decision import Outcome
 from support import synthetic
-from support.design import ALPHA, BETA, check_rate, n_for_rate
+from support.design import ALPHA, BETA, check_mean_error, check_rate, n_for_mean_error, n_for_rate
 
 # ---------------------------------------------------------------- tier 1
 
@@ -91,15 +91,21 @@ GENERATOR = synthetic.FloorPlusDetours(1.0, 0.05, (0.1, 0.02), (0.2, 1.0))
 PILOT_SIZE = 1000
 DELTA = 0.01
 PLAN_ALPHA, PLAN_BETA = 0.05, 0.2
-PLAN_SIMS = 400
+PLAN_SIMS = 200
 N_RESAMPLES = 1999
+FRESH_PER_PILOT = 200  # fresh experiments per pilot to measure the true power
 
-# The planned power is 1 - PLAN_BETA = 0.8. The pilot stands in for the
-# population and the plan's power estimate has Monte Carlo error, so the
-# test tolerates 0.75 and must catch a shortfall of 10 points (0.70).
-# Pilot (scripts/pilot.py test_planning): the true power at the planned size
-# averaged 0.81 over 10 pilots, from 0.76 to 0.86.
-POWER_TOLERATED, POWER_CATCH = 0.75, 0.70
+# The planned power is 1 - PLAN_BETA = 0.8. A short pilot stands in for the
+# population, so the true power at the planned size varies from pilot to
+# pilot: over 10 pilots of 1,000 draws (scripts/pilot.py test_planning) it
+# averaged 0.79 with sd 0.042, from 0.71 to 0.85. One pilot cannot tell that
+# spread from a real shortfall, so the test is an error test over many
+# pilots: each pilot's true power minus 0.8 is one error. It tolerates a mean
+# shortfall of 0.05 and must catch the plan's shortfall of 10 points. The sd
+# of one error (pilot spread plus Monte Carlo error from PLAN_SIMS and
+# FRESH_PER_PILOT) is about 0.05.
+POWER_ERROR_SD = 0.05
+POWER_TOLERATED, POWER_CATCH = 0.05, 0.10
 FALSE_TOLERATED, FALSE_CATCH = PLAN_ALPHA, 2 * PLAN_ALPHA
 
 
@@ -125,19 +131,30 @@ def _fresh_outcomes(runs, factor, n_experiments, rng):
 
 @pytest.mark.statistical
 def test_planned_runs_reach_planned_power(rng):
-    plan = _plan(rng)
-    n = n_for_rate(POWER_TOLERATED, POWER_CATCH, ALPHA / 2, BETA)
-    slower = sum(o == Outcome.SLOWER for o in _fresh_outcomes(plan.runs, 1 + DELTA, n, rng))
-    power = check_rate(slower, n, POWER_TOLERATED, ALPHA / 2, "lower")
-    assert power.passed, f"planned {plan.runs} draws; {power}"
+    """End to end: plan from a pilot, then check the plan on fresh data from the generator.
 
-    n = n_for_rate(FALSE_TOLERATED, FALSE_CATCH, ALPHA / 2, BETA)
-    false = sum(o in (Outcome.SLOWER, Outcome.FASTER) for o in _fresh_outcomes(plan.runs, 1.0, n, rng))
-    calibration = check_rate(false, n, FALSE_TOLERATED, ALPHA / 2, "upper")
-    assert calibration.passed, f"planned {plan.runs} draws; {calibration}"
+    With a true slowdown of delta, the rate of "slower" verdicts must reach
+    the planned power on average over pilots. With no change, the rate of
+    "slower" or "faster" verdicts must be at most alpha.
+    """
+    alpha = ALPHA / 2
+    n_pilots = n_for_mean_error(POWER_ERROR_SD, POWER_TOLERATED, POWER_CATCH, alpha, BETA)
+    n_false = n_for_rate(FALSE_TOLERATED, FALSE_CATCH, alpha, BETA)
+    per_pilot = math.ceil(n_false / n_pilots)
+    errors, false, runs = [], 0, []
+    for _ in range(n_pilots):
+        plan = _plan(rng)
+        runs.append(plan.runs)
+        slower = sum(o == Outcome.SLOWER for o in _fresh_outcomes(plan.runs, 1 + DELTA, FRESH_PER_PILOT, rng))
+        errors.append(slower / FRESH_PER_PILOT - plan.target_power)
+        false += sum(o in (Outcome.SLOWER, Outcome.FASTER) for o in _fresh_outcomes(plan.runs, 1.0, per_pilot, rng))
+    power = check_mean_error(errors, POWER_TOLERATED, alpha)
+    assert power.passed, f"planned sizes {runs}; power minus target: {power}"
+    calibration = check_rate(false, per_pilot * n_pilots, FALSE_TOLERATED, alpha, "upper")
+    assert calibration.passed, f"planned sizes {runs}; {calibration}"
 
 
-def true_power_at_plan(n_pilots, rng, n_experiments=400):
+def true_power_at_plan(n_pilots, rng, n_experiments=FRESH_PER_PILOT):
     """For each of several pilots: the true power at the planned size."""
     powers = []
     for _ in range(n_pilots):
